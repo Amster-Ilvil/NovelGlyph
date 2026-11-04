@@ -1,0 +1,134 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#ffffff"><title>NovelGlyph Web v1.2 · OCR×同形归组审校工作台</title><link rel="stylesheet" href="styles.css"></head>
+<body><div class="app">
+<header class="top"><div class="logo">字<span>◇</span></div><div class="brand"><strong>NovelGlyph <small>Web 1.2</small></strong><span>整书投影 · 本地 OCR 证据导入 · 同形校对 · 人工审批</span></div><div class="top-right"><span class="local"><i></i> 图片仅在本地浏览器处理</span><button id="exportProject" class="btn">保存工作区</button><button id="exportReview" class="btn primary">导出裁决结果</button></div></header>
+<main class="layout">
+<aside class="sidebar left">
+<div class="side-head"><div class="eyebrow">BOOK / SOURCES</div><h2>原始书籍</h2><p>可上传整书图片、ZIP/CBZ 或文件夹；不加载 OCR 权重。</p></div>
+<div class="drop" id="dropArea" tabindex="0" role="button"><span class="dropicon">＋</span><b>上传书页图片 / ZIP / CBZ</b><small>PNG / JPG / WebP · 文件仅本地读取</small></div>
+<input id="fileInput" type="file" accept=".zip,.cbz,image/*" multiple hidden><input id="folderInput" type="file" webkitdirectory multiple hidden>
+<div class="inline"><button class="textbtn" id="folderBtn">＋ 导入图片文件夹</button><button class="textbtn" id="demoBtn">载入演示样本</button></div>
+<div class="sideblock"><h3>投影检测参数</h3><div class="form-grid"><label>黑色阈值 <input id="threshold" type="number" min="80" max="240" value="185"></label><label>列间容错 px <input id="colGap" type="number" min="0" max="15" value="5"></label></div><label>正文区域（页面宽高比例）</label><div class="form-grid"><input aria-label="正文左边界" id="roiLeft" type="number" min="0" max="99" value="7"><input aria-label="正文上边界" id="roiTop" type="number" min="0" max="99" value="5"><input aria-label="正文右边界" id="roiRight" type="number" min="1" max="100" value="94"><input aria-label="正文下边界" id="roiBottom" type="number" min="1" max="100" value="95"></div><small class="muted">仅供正文页；插图、横排标题和 Ruby 可能产生风险区段。</small><label class="option-check"><input id="enableSliding" type="checkbox" checked> 整列滑动重合检索（不先切字）</label><label>纵向滑动步长（越小越全面，也越耗时） <select id="seedStride"><option value="2">2 px · 深度</option><option value="4" selected>4 px · 标准</option><option value="6">6 px · 省内存</option><option value="8">8 px · 快速</option></select></label><small class="muted">匹配的是 24×24 像素窗口，不是已确定的单字；先抽样验证，随后可启动全部指纹代表配对的逐像素复核。</small><button id="analyze" class="btn primary full">开始投影与跨页同形归并</button><div class="progress"><div id="progressBar"></div></div><small id="progressText" class="muted">尚未扫描</small></div>
+<div class="sideblock"><h3>整书统计</h3><div class="stats"><div><b id="pageCount">0</b><small>图像页</small></div><div><b id="regionCount">0</b><small>候选区段</small></div><div><b id="groupCount">0</b><small>形状组</small></div><div><b id="approvedCount">0</b><small>人工已确认</small></div></div></div>
+<div class="sideblock"><h3>整列重合证据</h3><div class="stats"><div><b id="seedCount">0</b><small>有效滑动窗口</small></div><div><b id="seedGroups">0</b><small>跨页指纹候选组</small></div><div><b id="seedVerified">0</b><small>原像素已核对配对</small></div><div><b id="seedCoverage">—</b><small>索引状态</small></div></div><small class="muted">候选指纹未核验前不视为相同；核验通过也只证明局部墨迹一致。</small>
+  <button class="btn primary full" id="bulkAudit" disabled>核验全部跨页指纹代表配对</button>
+  <div class="progress"><div id="bulkProgressBar"></div></div>
+  <small class="muted" id="bulkStatus">请先完成原图投影与整列索引。完整核验依次读取每一页的所有候选窗口，不自动赋字。</small>
+  <div class="stats"><div><b id="bulkExact">0</b><small>完整局部像素配对</small></div><div><b id="bulkFull">0</b><small>双页围合候选对</small></div><div><b id="bulkDistinct">0</b><small>关联审核形状组</small></div><div><b id="bulkFinished">—</b><small>核验覆盖状态</small></div></div></div><div class="sideblock"><h3>真实投影漏切审核</h3><div class="stats"><div><b id="gapAll">0</b><small>内部空谷候选</small></div><div><b id="gapLinked">0</b><small>子片段有跨页相同字形</small></div></div><small class="muted">只是备选切线，原文区段不会被自动切开。</small></div><div class="sideblock"><h3>筛选同形组</h3><select id="filter"><option value="all">全部候选</option><option value="unreviewed">待确认</option><option value="confirmed">已人工确认</option><option value="risky">风险 / 未决</option><option value="proposed">AI 待确认</option><option value="repeated">跨页重复</option><option value="anchored">完整轮廓双页证据</option></select><input id="search" placeholder="搜索编号或已赋字符"><div class="inline"><button id="prevGroup" class="btn">上一组</button><button id="nextGroup" class="btn">下一组</button></div></div>
+<div class="sideblock"><h3>项目管理</h3><button class="btn full" id="importSnapshot">导入审核记录 JSON</button><input id="snapshotInput" type="file" accept=".json" hidden><button class="btn full" id="reset" style="margin-top:8px">清空当前项目</button></div>
+</aside>
+<section class="center"><div class="editor-head"><div><span class="eyebrow">GLYPH REVIEW / PIXEL EVIDENCE</span><h2 id="editorTitle">尚未载入项目</h2></div><div class="tabs"><button data-view="group" class="on">同形审阅</button><button data-view="page">单列整理／原图</button><button data-view="manual">手动框选找同字</button><button data-view="discovery">全书字位库</button><button data-view="overlap">整列重叠</button><button data-view="transcript">逐页文本</button><button data-view="ai">AI 批处理</button></div></div>
+<div id="groupView" class="view"><div class="hero"><div class="hero-canvas"><img id="heroImage" alt="当前候选字形的原始裁片"><div id="heroEmpty" class="empty-hero">导入整书图片，或载入 V8.1 实际样本</div></div><div class="hero-detail"><div class="eyebrow">PIXEL MATCH / NO OCR</div><div id="glyphKey" class="mono">—</div><div class="hero-stats"><span id="glyphOccurrences">— 个出现位置</span><span id="glyphPages">— 个不同扫描页</span></div><p id="glyphWarning" class="muted">归组意味着图形相同，不意味着已验证为完整单字。</p><div class="legend"><span class="dot teal"></span>图形重复<span class="dot orange"></span>边界或符号风险</div></div></div>
+<div class="section-line"><h3>不同页面 / 不同上下文的实物对照</h3><span id="examplesLabel" class="muted">未选择</span></div><div class="sample-grid" id="sampleGrid"><div class="placeholder">载入数据后，将显示至少一个原始裁片和上下文</div></div>
+<div class="section-line"><h3>形状组列表</h3><span id="listStatus" class="muted">—</span></div><div id="groupList" class="group-list"></div><div class="paging"><button id="prevPage" class="btn">上一页</button><span id="pageIndicator">—</span><button id="nextPage" class="btn">下一页</button></div></div>
+<div id="pageView" class="view hidden"><div class="section-line"><h3>原图位置与候选切线</h3><span class="muted">红色代表区段，黄色为待复核风险</span></div><div class="page-pick"><select id="pageSelect"></select><label><input type="checkbox" id="showSegments" checked> 显示区段边界</label></div><div class="image-stage"><canvas id="pageCanvas"></canvas><div id="pageCanvasEmpty" class="placeholder">从上传的原图中选一页</div></div><p class="muted">在原图上点击一个文字列，或在下方按分类选择。<b>蓝色</b>标识选中列；<b>绿色虚线</b>标识已保存的人工断段。断段不修改单字图片，不赋予 Unicode。</p>
+<div class="column-editor" id="columnEditor">
+ <section class="column-triage" aria-label="整书异常列审核优先队列">
+  <div class="section-line"><h3>异常列优先审核</h3><small class="muted">只按几何形态排序，不自动识别文字</small></div>
+  <div class="inline"><label>队列 <select id="columnPriorityMode">
+   <option value="risk">疑似异常优先</option><option value="punctuation">窄字形与标点候选</option>
+   <option value="unreviewed">尚未人工分类</option><option value="all">全书所有物理列</option>
+  </select></label><button id="columnPriorityPrev" class="btn">上一条</button><button id="columnPriorityNext" class="btn">下一条</button></div>
+  <p id="columnPrioritySummary" class="muted">运行原图投影后生成异常审核队列；不自动修改列类别。</p>
+ </section>
+
+ <div class="section-line"><h3>单列分类与手动分段</h3><span id="colStats" class="muted">等待物理列检测</span></div>
+ <div class="inline"><label>按类别筛选 <select id="columnFilter"><option value="all">全部物理列</option></select></label><label>选择物理列 <select id="columnSelect"><option value="">先选择一页</option></select></label></div>
+ <div class="inline"><button id="columnPrev" class="btn">← 上一匹配列</button><button id="columnNext" class="btn">下一匹配列 →</button></div><div id="columnTiles" class="column-tiles"></div>
+ <p id="columnSummary" class="muted">请先在原图上点击某一列。</p>
+ <div class="column-adviser"><div class="inline"><strong>本列几何风险</strong><button id="columnMarkReview" class="btn">标记整列待复核</button></div>
+  <p id="columnAdvisorReasons" class="muted">等待原图投影数据</p></div>
+
+ <div class="inline"><label>整列类别 <select id="columnType"></select></label><button id="columnSetType" class="btn">分类整列</button><label>列备注 <input id="columnNote" placeholder="如：句号后独立断段"></label></div>
+ <div class="inline"><label>选中列段 <select id="columnSegment"><option value="0">整列</option></select></label><label>当前列段类别 <select id="columnSegmentType"></select></label><button id="columnSetSegmentType" class="btn">修改当前段分类</button></div>
+ <div class="column-cut-editor">
+  <h4>手动断段切线</h4><small class="muted">在原图选中列后，点击或拖动选择纵向位置；也可在下面输入原图像素 y 坐标。默认吸附至附近真正的无墨迹投影空谷。</small>
+  <div class="inline"><label>切线 y（原图像素）<input id="columnCutY" type="number" step="1" min="0" placeholder="点击原图选择"></label><label>切线下方段类别 <select id="columnCutKind"></select></label></div>
+  <label class="column-override"><input id="columnForceLogical" type="checkbox"> 仅强制插入逻辑断段（允许跨墨迹，但不裁切图像／不分字；保留冲突风险）</label>
+  
+  <div class="gap-recommend"><div class="inline"><strong>真实空谷切线候选</strong><small class="muted">只提供位置建议，点击候选后仍须手动确认切分</small></div>
+   <div id="columnSuggestionList" class="gap-candidate-list">选择一列后显示候选空谷</div></div>
+  <div class="inline"><button id="columnCut" class="btn primary">按选定位置拆分此列</button><button id="columnRemoveCut" class="btn">合并选中段与下段</button></div>
+  <div class="inline"><button id="columnUndo" class="btn">撤销列修改</button><button id="columnRedo" class="btn">重做列修改</button><button id="columnExport" class="btn">导出单列分类 JSON</button></div>
+  <small id="columnStatus" class="muted">单列断段仅控制阅读顺序和分类，不破坏已建立的字形组。</small>
+ </div>
+</div></div>
+<div id="manualView" class="view hidden">
+ <section class="manual-workspace">
+  <div class="section-line"><h3>手动框一个字 → 无预切分全书像素重合</h3><span class="muted">无需自动分列、无需 OCR，源图本地处理</span></div>
+  <p class="muted">先导入整书，然后直接在原图拖出只包含一个完整字／符号的框。搜索扫描所有页面可能的像素位置，不以旧版自动切字的区段为前提。灰度差异可调；相似图案仍须人工复核，特别是「力／カ」「一／ー」。</p>
+  <div class="inline"><label>源图页 <select id="manualPageSelect"></select></label><label>匹配精度 <select id="manualScore"><option value="94">严格 · 94%</option><option value="89">均衡 · 89%</option><option value="84" selected>宽容 · 84%</option><option value="76">探索 · 76%</option></select></label><label>搜索范围 <select id="manualScope"><option value="full">整页全部像素</option><option value="roi">正文 ROI（更快）</option></select></label><label>墨迹阈值 <input type="number" id="manualThreshold" min="90" max="245" value="185" style="width:80px"></label></div>
+  <div class="manual-stage"><canvas id="manualCanvas" aria-label="拖动手工框选字形"></canvas><div id="manualNoPage" class="placeholder">先从左侧上传整书扫描页，不要求提前投影或切字。</div></div>
+  <label class="option-check"><input type="checkbox" id="manualShowHits" checked> 在本页原图显示所有已搜索的命中框（绿色为已人工确认）</label><p id="manualSelection" class="muted">用鼠标按住左键，框出一整个字形。</p>
+  <div class="inline"><button class="btn" id="manualDemoBtn">载入 4 页原创框选演示</button><button class="btn primary" id="manualSearch">在整本书搜索相同图形</button><button class="btn" id="manualCancel" disabled>停止扫描</button><button class="btn" id="manualResume" disabled>从断点继续搜索</button><button class="btn" id="manualExport">导出全部坐标与人工判定 JSON</button></div>
+  <div class="progress"><div id="manualProgressBar"></div></div><p class="muted" id="manualStatus">可直接框字搜索；不需要先运行“开始投影与跨页同形归并”。</p>
+  <section class="coverage-workspace" aria-label="整书墨迹覆盖账本">
+   <div class="section-line"><h3>整书墨迹覆盖账本 · 下一字形推荐</h3><span class="muted">按原图灰度像素统计，不等同已还原文字</span></div>
+   <p class="muted">绿色：人工逐位置确认框内的墨迹；黄色：仅为重合候选／批量建议；红色：当前没有模板命中解释的墨迹。已排除的候选不算覆盖。覆盖只是位置统计，不能证明单字边界或 Unicode。</p>
+   <div class="inline"><label>统计范围 <select id="coverageScope"><option value="all">整页所有墨迹</option><option value="roi">正文 ROI（排除范围不计入）</option></select></label><label class="cover-option"><input type="checkbox" id="coverageOverlay"> 在原图显示像素级三色覆盖层</label><button class="btn primary" id="coverageRecommend">分析当前页并推荐下一选框</button><button class="btn" id="coverageAudit">遍历全书统计</button><button class="btn" id="coverageCancel" disabled>中止统计</button><button class="btn" id="coverageExport" disabled>导出统计 JSON</button></div>
+   <div class="coverage-counters"><div><strong id="coverageAccepted">—</strong><small>当前页已人工确认墨迹</small></div><div><strong id="coveragePending">—</strong><small>当前页待审候选墨迹</small></div><div><strong id="coverageUncovered">—</strong><small>当前页尚未解释墨迹</small></div><div><strong id="coverageTotal">—</strong><small>当前页统计墨迹总量</small></div></div>
+   <p class="muted" id="coverageStatus">选择任意页面，然后分析未覆盖墨迹；无需先做 OCR 或自动分字。</p>
+   <div id="coverageSuggestions" class="coverage-suggestions"></div><div id="coveragePages" class="coverage-pages"></div>
+  </section>
+
+  <div class="inline"><label>历史框选任务 <select id="manualTemplateSelect"></select></label><label>筛选 <select id="manualMatchFilter"><option value="all">全部候选</option><option value="pending">待复核</option><option value="proposed">批量建议</option><option value="accepted">已人工确认</option><option value="rejected">已排除</option><option value="risk">邻字污染风险</option></select></label></div>
+  <p id="manualResultStatus" class="muted">还没有搜索结果。</p>
+  <div class="manual-confirm"><label>模板的可选字符标签 <input id="manualUnicode" placeholder="例如：の、魔、。" maxlength="8"></label><label><input type="checkbox" id="manualReviewed"> 我已查看多页不同上下文；知道同形不一定同码位</label><button id="manualProposal" class="btn">给无边缘风险命中填写批量建议（非确认）</button></div>
+  <div id="manualResults" class="manual-results"></div>
+  <div class="paging"><button class="btn" id="manualPrev">上一批</button><span id="manualPagination">—</span><button class="btn" id="manualNext">下一批</button></div>
+ </section>
+</div>
+<div id="discoveryView" class="view hidden">
+  <section class="discovery-workspace" aria-label="OCR免费全书字位发现与唯一字形库">
+   <div class="section-line"><h3>1.2 · 全书候选字位 → 唯一字形库 → 人工正文草稿</h3><span class="muted">自动找物理候选，绝不自动猜 Unicode</span></div>
+   <p class="muted">不要求 OCR：整书逐页投影，按完整单字候选的三阈值原像素形状去重。窄列 Ruby、标点和连字可能误切；可按列筛选、手动拆分／合并、排除 Ruby，之后人工赋字。与上方框选找同字并存，不会覆盖旧版结果。</p>
+   <div class="inline"><button class="btn primary" id="discoveryScan">遍历整书发现候选字位</button><button class="btn" id="discoveryCancel" disabled>中止（保留已完成页）</button><button class="btn" id="discoveryLinkManual">关联手框搜索结果（仅建议）</button><button class="btn" id="discoveryAuditInk">检查候选字位漏覆盖墨迹</button><button class="btn" id="discoveryRecommend">推荐本页未覆盖选框</button><button class="btn" id="discoveryAddSelected">将手框补录为新字位</button><button class="btn" id="discoveryExport" disabled>导出整书 TXT 草稿</button><button class="btn" id="discoveryExportJSON" disabled>导出逐字 JSON</button></div>
+   <p id="discoveryStatus" class="muted">尚未发现候选；当前版本不会自动认定任何字形是完整单字。</p><p id="discoveryStats" class="muted"></p><p id="discoveryInkStatus" class="muted">候选字位墨迹覆盖尚未检查。</p><div id="discoveryInkPages" class="coverage-pages"></div><div id="discoveryMissed" class="coverage-suggestions"></div>
+   <section class="hybrid-workspace" aria-label="OCR三模型证据交叉审核">
+    <div class="section-line"><h3>1.2 · OCR × 字形证据交叉审核</h3><span class="muted">仅导入 OCR 逐字坐标；不下载、不运行模型，不自动写 Unicode</span></div>
+    <p class="muted">先建立全书候选字位库，再导入一个或多个 <code>NovelGlyph-OCR-Evidence-v1</code> JSON。每个 JSON 以 source 区分 Hayai / NDL / 48px，页码从 0 开始，提供原图坐标 [x0,y0,x1,y1]。同一 source 重导会覆盖该来源旧证据。OCR 与候选框 IoU 至少 0.60，匹配歧义直接保留未关联。分歧排在前面，安全一致组仅填入人工审核框，不直接批准。</p>
+    <div class="inline"><label class="hybrid-file-label">导入 OCR 单字坐标 JSON（可多选）<input type="file" id="hybridImport" accept=".json,application/json" multiple></label><button class="btn" id="hybridTemplate">导出 JSON 格式示例</button><button class="btn" id="hybridAuditExport">导出 OCR-形状冲突报告</button><button class="btn warn" id="hybridClear">清空 OCR 证据</button></div>
+    <p id="hybridStatus" class="muted">尚未接入 OCR 证据，已有人工字形标签不受影响。</p>
+    <div id="hybridCounters" class="coverage-counters"></div><h4>优先核对的形状组</h4><div id="hybridQueue" class="hybrid-queue"></div>
+   </section>
+   <div class="discovery-dual">
+    <div><h4>跨页唯一字形组</h4><div class="inline"><label>筛选 <select id="discoveryGroupFilter"><option value="all">全部</option><option value="unlabeled">待人工审核</option><option value="repeated">重复形状优先</option><option value="approved">已人工审核</option></select></label></div><div id="discoveryGroups" class="discovery-scroll"></div><div class="inline"><button id="discoveryGroupPrev" class="btn">上批</button><span id="discoveryGroupPages" class="muted"></span><button id="discoveryGroupNext" class="btn">下批</button></div>
+     <div class="discovery-label"><label>当前组的 Unicode（仅相同形状） <input id="discoveryLabel" maxlength="8" placeholder="例如 の"></label><label><input type="checkbox" id="discoveryApprove"> 我已确认完整字形、跨页代表和上下文，批准组标签</label><button class="btn" id="discoverySaveGroup">保存组标签与审核状态</button><small class="muted">力／カ 等同形异码必须逐个字位确认。标注不会合并不同形状变体。</small></div>
+    </div>
+    <div><h4>逐页物理候选与校正</h4><div class="inline"><label>页 <select id="discoveryPage"></select></label><label>列 <select id="discoveryColumn"><option value="all">全部列</option></select></label><label>查看 <select id="discoveryRegionFilter"><option value="all">全部候选</option><option value="unresolved">未确认</option><option value="ruby">Ruby 风险</option><option value="group">当前形状组</option></select></label></div><p class="muted" id="discoveryRegionStatus">尚未发现</p><div id="discoveryRegions" class="discovery-scroll"></div><div class="inline"><button id="discoveryRegionPrev" class="btn">上批</button><span id="discoveryRegionPages" class="muted"></span><button id="discoveryRegionNext" class="btn">下批</button></div>
+     <div class="discovery-label"><p id="discoverySelected" class="muted">点选一个候选查看原图、分类、拆分或赋字。</p><div class="inline"><button id="discoveryGo" class="btn">在原图定位</button><button id="discoveryKind_body" class="btn">正文</button><button id="discoveryKind_ruby" class="btn">标为 Ruby</button><button id="discoveryKind_excluded" class="btn">非正文</button><button id="discoveryKind_review" class="btn">复核</button></div><div class="inline"><label>此处真实 Unicode <input id="discoveryPositionLabel" maxlength="8" placeholder="单字／符号"></label><button id="discoveryPositionConfirm" class="btn primary">人工确认此处</button><button id="discoveryPositionUndo" class="btn">撤销此处</button></div><div class="inline"><label>原图切分纵坐标 Y <input id="discoverySplitY" type="number" min="0" step="1" value="0"></label><button id="discoverySplit" class="btn">从 Y 拆为两段</button><button id="discoveryMerge" class="btn">与下一个同列段合并</button></div><small class="muted">修改物理边界后新段全部回到待审状态；不继承旧 Unicode。竖排右列优先、列内自上而下输出 □ 占位。</small></div>
+    </div>
+   </div>
+  </section>
+</div>
+<div id="overlapView" class="view hidden"><div class="section-line"><h3>跨页独立滑动重合证据</h3><span id="overlapStatus" class="muted">尚未检索</span></div><p class="muted">窗口直接从未切字的物理列取得。左、右为不同页的 24×24 像素原始裁片。只有显示“原像素核验通过”的配对，才已经重新从两页逐像素核对。它们仍不是经过认证的完整单字。</p><div id="overlapList" class="overlap-list"><div class="placeholder">上传书页并开始分析后显示跨页相同墨迹位置</div></div><div class="section-line"><h3>双页投影围合完整字形候选</h3><span id="anchorStatus" class="muted">尚未审计</span></div><p class="muted">只有相同滑动窗口、两页分别存在真实墨迹空谷围合、且整个候选三阈值图形完全一致时才列出。仍需人工确认是否为完整单字及正确 Unicode。</p><div id="anchorList" class="overlap-list"><div class="placeholder">请导入原书并分析</div></div><div class="section-line"><h3>疑似漏切：真实内部空谷 + 跨页子图形</h3><span class="muted">不自动切分、不赋 Unicode</span></div><div id="gapList" class="gap-list"><div class="placeholder">等待投影审计</div></div><div class="paging"><button id="prevOverlap" class="btn">上一批</button><span id="overlapPageIndicator">—</span><button id="nextOverlap" class="btn">下一批</button></div></div><div id="transcriptView" class="view hidden">
+ <div class="ai-section">
+  <div class="section-line"><h3>无 OCR · 逐页文字草稿</h3><span class="muted" id="transcriptCoverage">未建立字位索引</span></div>
+  <p class="muted">仅以物理投影区段作为候选位置，按原图列的横坐标从右向左、每列从上向下排列。<b>□</b> 表示未知、半字风险、组未确认或同形异码；不能当作可直接出版的正文。未建立金标的页面顺序和分栏结构也需要人工核查。</p>
+  <div class="inline"><label>查看页面 <select id="transcriptPage"></select></label><button class="btn" id="exportTranscriptTXT">导出含占位符 TXT</button><button class="btn" id="exportTranscriptJSON">导出位置审计 JSON</button></div>
+  <p id="transcriptStatus" class="muted">导入图片并完成投影分析后显示。</p>
+  <div id="transcriptColumns" class="transcript-columns"></div>
+  <div class="sideblock"><h3>单个位置的人工确认（不会更改同形组）</h3>
+   <p id="occurrenceSummary" class="muted">点击上方任意字位查看其原图位置</p>
+   <div class="inline"><button id="occurrenceShowPage" class="btn">定位原始页</button><button id="occurrenceShowGroup" class="btn">查看所属形状组</button></div>
+   <label>当前位置确认的 Unicode 字素 <input type="text" id="occurrenceUnicode" class="large-input" placeholder="例如：力"></label>
+   <div class="check-group"><label><input type="checkbox" id="occurrenceWhole"> 已在原图检查完整字形</label><label><input type="checkbox" id="occurrenceNoRuby"> 已检查 Ruby / 邻字和边界</label><label><input type="checkbox" id="occurrenceContext"> 已根据此处上下文确认码位</label></div>
+   <div class="inline"><button id="occurrenceApprove" class="btn primary">只确认此位置</button><button id="occurrenceUndo" class="btn">撤销此位置确认</button></div>
+   <div class="geometry-editor">
+    <h3>原图字位边界修复 · 不运行 OCR</h3>
+    <p class="muted">选中上方字位后，按原始墨迹的真实投影空谷拆分或移动边界，也可与同一列的下一个区段合并。所有新字形强制重新审核，不继承旧 Unicode 标签。</p>
+    <label>当前区段内的真实空谷切线 <select id="geometrySplitY"><option value="">先选择一个字位</option></select></label>
+    <div class="inline"><button class="btn" id="geometrySplit">按空谷拆分</button><button class="btn" id="geometryMerge">与下一区段合并</button></div>
+    <label>与下一区段重新指定分界线 <select id="geometryMoveY"><option value="">先选择一个字位</option></select></label>
+    <button class="btn full" id="geometryMove">按真实空谷移动分界线</button>
+    <div class="inline geometry-history"><button class="btn" id="geometryUndo">撤销切分修改</button><button class="btn" id="geometryRedo">重做切分修改</button></div>
+    <small class="muted" id="geometryStatus">没有编辑过物理区段。保存工作区会包含可撤销的操作记录。</small>
+   </div>
+  </div>
+ </div>
+</div><div id="aiView" class="view hidden"><div class="ai-section"><h3>批量 AI 视觉裁决（可人工往返）</h3><p>默认不发送图片、不保存 API Key。导出待确认组的图像证据和结构化 JSON，交给支持看图的大模型；把 AI 的 JSON 建议贴回此处。AI 建议不会自动覆盖人工确认结果。</p><div class="inline"><label>导出组数 <input id="batchSize" type="number" min="1" max="100" value="20"></label><button id="exportAI" class="btn primary">导出 AI 待审包 ZIP</button></div><div class="code-hint">返回格式示例：[{"group_id":"...","unicode":"の","confidence":0.95}]</div><label>粘贴 AI 返回的 JSON</label><textarea id="aiInput" rows="12" spellcheck="false" placeholder='[{"group_id":"...","unicode":"の","confidence":0.95}]'></textarea><div class="inline"><button id="importAI" class="btn">导入粘贴建议（不自动确认）</button><button id="aiFileButton" class="btn">导入 AI JSON 文件</button><input id="aiFileInput" type="file" accept=".json,application/json" hidden></div><p class="muted" id="aiStatus">尚无 AI 建议</p></div></div>
+<div class="toast" id="toast" role="status"></div></section>
+<aside class="sidebar right"><div class="side-head"><div class="eyebrow">INSPECTOR / DECISION</div><h2>人工裁决</h2><p>对当前形状组确认一次；可用原始页上下文排除半字、Ruby 和异码。</p></div><div class="sideblock"><div class="inspector-title"><h3>当前候选</h3><span id="groupState" class="state">未选择</span></div><div id="inspectorSummary" class="inspector-summary">请先载入数据</div><label>确认的 Unicode 字符 / 符号</label><input id="unicode" class="large-input" placeholder="例如：の、魔、。"><small>可以输入一个 Unicode 字素；字形跨多个字符时须标为不完整，不允许自动扩散。</small><div class="check-group"><label><input id="isWhole" type="checkbox"> 已检查：这是一个完整单字或符号</label><label><input id="noRuby" type="checkbox"> 已检查：没有 Ruby / 邻字污染</label><label><input id="contextSafe" type="checkbox"> 已检查：在不同上下文中码位相同</label></div><div class="inline"><button id="confirm" class="btn primary">人工确认并赋字</button><button id="reject" class="btn warn">标记无效</button></div><button id="undo" class="btn full">撤销本组审核</button></div>
+<div class="sideblock"><h3>AI 候选建议</h3><div class="suggestion" id="suggestion">没有导入建议</div><button class="btn full" id="adoptProposal">把建议填入输入框（仍需确认）</button></div>
+<div class="sideblock"><h3>安全规则</h3><ul><li>图形 SHA 和三阈值一致不代表 Unicode 一致。</li><li>力／カ、工／エ、一／ー 等不自动跨上下文传播。</li><li>自动归组结果默认未确认，允许拒绝、撤销。</li><li>批量标注只对当前经过检查的组有效。</li></ul></div><div class="sideblock"><h3>导出</h3><button id="exportCSV" class="btn full">下载 Unicode 字形映射 CSV</button><button id="exportJSON" class="btn full">下载审核审计 JSON</button></div></aside>
+</main><footer>NovelGlyph Web · 独立实验性工具 · 无 OCR · 源图本地处理 · 不承诺整书全部字符可唯一还原</footer></div>
+<script src="vendor/jszip.min.js"></script><script src="demo-data.js"></script><script src="engine.js"></script><script src="sliding.js"></script><script src="anchored.js"></script><script src="bulk_audit.js"></script><script src="reconstruct.js"></script><script src="geometry.js"></script><script src="columns.js"></script><script src="column_advisor.js"></script><script src="app.js"></script><script src="manual_match.js"></script><script src="coverage.js"></script><script src="manual_ui.js"></script><script src="discovery.js"></script><script src="hybrid.js"></script><script src="discovery_ui.js"></script><script src="hybrid_ui.js"></script></body></html>
