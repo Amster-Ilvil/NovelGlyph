@@ -21,7 +21,19 @@ async function loadProjectZip(zip){
  clearState();state.mode=manifest.source;state.projectName=manifest.name||'恢复的项目';
  if(manifest.source==='images'){
   const entries=Object.values(zip.files).filter(e=>!e.dir&&e.name.startsWith('original_pages/')).sort((a,b)=>natural(a.name,b.name));
-  for(const e of entries){const blob=await e.async('blob');state.pages.push({name:e.name.replace(/^original_pages\//,''),blob,url:URL.createObjectURL(blob)})}
+  if(entries.length>2000)throw Error('项目包含超过 2000 页，请按卷拆分');
+  if(Array.isArray(manifest.pageFiles)&&manifest.pageFiles.length!==entries.length)throw Error('项目清单的书页数与实际图片数不一致');
+  let restoredBytes=0;
+  for(const e of entries){
+   const len=e._data?.uncompressedSize||0;
+   if(len>70e6||restoredBytes+len>900e6)throw Error('项目图片超过安全大小限制（单页 70 MB／全书 900 MB）');
+   const blob=await e.async('blob');restoredBytes+=blob.size;
+   if(restoredBytes>900e6)throw Error('项目图片总大小超过 900 MB');
+   const origName=manifest.pageFiles?.[state.pages.length];
+   const name=typeof origName==='string'&&origName.trim()?origName:e.name.replace(/^original_pages\/\d+_/, '');
+   state.pages.push({name,blob,url:URL.createObjectURL(blob)});
+   if(state.pages.length%20===0)$('progressText').textContent=`恢复书页 ${state.pages.length}/${entries.length}`;
+  }
  }else if(manifest.source==='demo'){
   // The demonstration assets are distributed with the website, not duplicated into workspace ZIP.
   state.mode='demo';
@@ -385,7 +397,14 @@ function adopt(){const g=state.index.get(state.selected);if(!g?.proposal)return 
 function changeTab(tab){state.view=tab;document.body.classList.toggle('discovery-mode',tab==='discovery');for(const el of document.querySelectorAll('.tabs button'))el.classList.toggle('on',el.dataset.view===tab);for(const t of ['group','page','manual','discovery','overlap','transcript','ai'])$(t+'View').classList.toggle('hidden',t!==tab);if(tab==='page')renderPage();if(tab==='manual')window.NovelManual?.render();if(tab==='discovery')window.NovelDiscovery?.render();if(tab==='transcript')renderTranscript();if(tab==='overlap'){renderOverlaps();renderAnchors();renderGapProposals()}}
 function refreshPageSelect(){const el=$('pageSelect');el.replaceChildren();for(let i=0;i<state.pages.length;i++){const o=document.createElement('option');o.value=i;o.textContent=`${i+1} · ${state.pages[i].name.slice(-38)}`;el.appendChild(o)}if(!state.pages.length){const o=document.createElement('option');o.textContent='无已导入原图';el.appendChild(o)}}
 async function renderPage(focus=null){const idx=Number($('pageSelect').value||0),cv=$('pageCanvas'),empty=$('pageCanvasEmpty');if(!state.pages[idx]){cv.classList.add('hidden');empty.classList.remove('hidden');return}const bm=await getBmp(idx);if(!bm)return;cv.classList.remove('hidden');empty.classList.add('hidden');cv.width=bm.width;cv.height=bm.height;const ctx=cv.getContext('2d');ctx.drawImage(bm,0,0);if($('showSegments').checked){const regs=state.pageRegions.get(idx)||[];ctx.lineWidth=1.3;for(const r of regs){ctx.strokeStyle=r.risk?.length?'#e09a28':'#c52e52';ctx.strokeRect(r.x0,r.y0,r.x1-r.x0,r.y1-r.y0)}}if(focus){const rect=Array.isArray(focus)?focus:focus.rect;ctx.lineWidth=4;ctx.strokeStyle='#13a388';ctx.strokeRect(rect[0],rect[1],rect[2]-rect[0],rect[3]-rect[1]);if(!Array.isArray(focus)&&Number.isFinite(focus.cutY)){ctx.lineWidth=3;ctx.strokeStyle='#16a34a';ctx.beginPath();ctx.moveTo(rect[0]-4,focus.cutY);ctx.lineTo(rect[2]+4,focus.cutY);ctx.stroke()}}drawColumnOverlays(ctx,idx);renderColumnPanel(idx)}
-async function exportProject(){const zip=new JSZip();const manifest={format:'NovelGlyph-Project-v1',source:state.mode,name:state.projectName,groups:state.groups.map(g=>({id:g.id,count:g.count,pages:g.pages,status:g.status,unicode:g.label||'',risk:g.risk,source:g.source,examples:g.examples,key:g.key,anchorEvidence:g.anchorEvidence||0,bulkEvidence:g.bulkEvidence||0,proposal:g.proposal||null})),pageFiles:state.pages.map(p=>p.name),automatic_unicode_writeback:false};zip.file('occurrence-decisions.json',JSON.stringify([...state.occurrenceOverrides]));zip.file('geometry-history.json',JSON.stringify({format:'NovelGlyph-Geometry-Edits-v1',history:state.geometryHistory,redo:state.geometryRedo,serial:state.editSerial,auditStale:state.geometryAuditStale}));zip.file('column-marks.json',JSON.stringify([...state.columnMarks]));zip.file('column-history.json',JSON.stringify({history:state.columnHistory,redo:state.columnRedo}));zip.file('manifest.json',JSON.stringify(manifest));if(window.NovelManual)zip.file('manual-search.json',JSON.stringify(window.NovelManual.snapshot()));if(window.NovelDiscovery)zip.file('discovery.json',JSON.stringify(window.NovelDiscovery.snapshot()));zip.file('human-decisions.json',JSON.stringify(exportDecisions()));if(state.mode==='images')zip.file('intervals.json',JSON.stringify([...state.pageRegions]));if(state.sliding)zip.file('sliding.json',JSON.stringify(state.sliding));zip.file('anchors.json',JSON.stringify(state.anchors));zip.file('columns.json',JSON.stringify([...state.columnsByPage]));zip.file('gap-proposals.json',JSON.stringify({summary:state.gapSummary,proposals:state.gapProposals}));if(state.bulk){
+let savingWorkspace=false;
+async function exportProject(){
+ if(savingWorkspace){notify('工作区正在打包，请勿重复点击');return}
+ savingWorkspace=true;
+ const btn=$('exportProject'),label=btn.textContent;
+ btn.disabled=true;btn.textContent='正在保存…';
+ try{
+ const zip=new JSZip();const manifest={format:'NovelGlyph-Project-v1',source:state.mode,name:state.projectName,groups:state.groups.map(g=>({id:g.id,count:g.count,pages:g.pages,status:g.status,unicode:g.label||'',risk:g.risk,source:g.source,examples:g.examples,key:g.key,anchorEvidence:g.anchorEvidence||0,bulkEvidence:g.bulkEvidence||0,proposal:g.proposal||null})),pageFiles:state.pages.map(p=>p.name),automatic_unicode_writeback:false};zip.file('occurrence-decisions.json',JSON.stringify([...state.occurrenceOverrides]));zip.file('geometry-history.json',JSON.stringify({format:'NovelGlyph-Geometry-Edits-v1',history:state.geometryHistory,redo:state.geometryRedo,serial:state.editSerial,auditStale:state.geometryAuditStale}));zip.file('column-marks.json',JSON.stringify([...state.columnMarks]));zip.file('column-history.json',JSON.stringify({history:state.columnHistory,redo:state.columnRedo}));zip.file('manifest.json',JSON.stringify(manifest));if(window.NovelManual)zip.file('manual-search.json',JSON.stringify(window.NovelManual.snapshot()));if(window.NovelDiscovery)zip.file('discovery.json',JSON.stringify(window.NovelDiscovery.snapshot()));zip.file('human-decisions.json',JSON.stringify(exportDecisions()));if(state.mode==='images')zip.file('intervals.json',JSON.stringify([...state.pageRegions]));if(state.sliding)zip.file('sliding.json',JSON.stringify(state.sliding));zip.file('anchors.json',JSON.stringify(state.anchors));zip.file('columns.json',JSON.stringify([...state.columnsByPage]));zip.file('gap-proposals.json',JSON.stringify({summary:state.gapSummary,proposals:state.gapProposals}));if(state.bulk){
  zip.file('bulk-index.bin',new Uint8Array(state.bulk.words.buffer));
  zip.file('bulk-status.bin',state.bulk.statuses);
  zip.file('bulk-meta.json',JSON.stringify({pageCount:state.bulk.pageCount,pageCursor:state.bulk.pageCursor,complete:state.bulk.complete,summary:state.bulk.summary,links:state.bulk.links}));
@@ -394,7 +413,9 @@ async function exportProject(){const zip=new JSZip();const manifest={format:'Nov
   zip.file('bulk-valid.bin',state.bulk.valid);
   zip.file('bulk-regions.bin',new Uint8Array(state.bulk.regions.buffer));
  }
- }if(state.mode==='images')for(let i=0;i<state.pages.length;i++)zip.file(`original_pages/${String(i+1).padStart(5,'0')}_${safe(state.pages[i].name)}`,state.pages[i].blob);const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:3}},meta=>{$('progressText').textContent=`保存 ZIP ${meta.percent.toFixed(0)}%`});download(blob,'novelglyph_project.zip');notify('已保存含页面的项目 ZIP；可保存审核结果 JSON 单独恢复')}
+ }if(state.mode==='images')for(let i=0;i<state.pages.length;i++)zip.file(`original_pages/${String(i+1).padStart(5,'0')}_${safe(state.pages[i].name)}`,state.pages[i].blob,{compression:'STORE'});const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:3}},meta=>{$('progressText').textContent=`保存 ZIP ${meta.percent.toFixed(0)}%`});download(blob,'novelglyph_project.zip');notify('已保存含页面的项目 ZIP；可保存审核结果 JSON 单独恢复')
+ }finally{savingWorkspace=false;btn.disabled=false;btn.textContent=label}
+}
 
 // Only explicitly verified per-occurrence decisions are imported. Invalid or stale
 // keys are ignored at reconstruction time; group decisions cannot overwrite them.
@@ -687,6 +708,15 @@ function wire(){
  for(const ev of ['dragenter','dragover'])$('dropArea').addEventListener(ev,e=>{e.preventDefault();$('dropArea').classList.add('drag')});$('dropArea').addEventListener('dragleave',()=>$('dropArea').classList.remove('drag'));
  $('dropArea').addEventListener('drop',async e=>{e.preventDefault();$('dropArea').classList.remove('drag');try{await ingest([...e.dataTransfer.files])}catch(err){notify(err.message)}});
  $('fileInput').onchange=async e=>{try{await ingest([...e.target.files])}catch(err){notify(err.message)}e.target.value=''};
+ $('importWorkspaceBtn').onclick=()=>$('workspaceInput').click();
+ $('workspaceInput').onchange=async e=>{
+  try{const file=e.target.files?.[0];if(!file)return;
+   if(!/\.zip$/i.test(file.name))throw Error('请选择 NovelGlyph 保存的项目 ZIP');
+   const zip=await JSZip.loadAsync(file);
+   if(!zip.file('manifest.json'))throw Error('此 ZIP 不含项目 manifest.json；普通书页包请使用上方上传入口');
+   await loadProjectZip(zip);
+  }catch(err){notify('导入工作区失败：'+err.message)}finally{e.target.value=''}
+ };
  $('folderBtn').onclick=()=>$('folderInput').click();$('folderInput').onchange=async e=>{try{await ingest([...e.target.files])}catch(err){notify(err.message)}e.target.value=''};
  $('demoBtn').onclick=loadDemo;$('analyze').onclick=analyze;$('bulkAudit').onclick=()=>void runBulkAudit();$('filter').onchange=applyFilter;$('search').oninput=applyFilter;
  $('prevGroup').onclick=()=>moveGroup(-1);$('nextGroup').onclick=()=>moveGroup(1);
